@@ -21,7 +21,12 @@ from speedometer_app.models import (
     format_rate,
     format_total,
 )
-from speedometer_app.services import NetworkSampler, TrafficHistoryRepository, WindowsPlatformService
+from speedometer_app.services import (
+    NetworkSampler,
+    SettingsRepository,
+    TrafficHistoryRepository,
+    WindowsPlatformService,
+)
 
 
 def _make_dialog(parent: tk.Tk, title: str, width: int, height: int, icon_photo=None) -> tk.Toplevel:
@@ -62,11 +67,21 @@ class OptionsDialog:
         self.on_reset_totals = on_reset_totals
         self._working = Settings(**asdict(settings))
 
-        self.win = _make_dialog(parent, f"{APP_NAME} Options", 640, 560, icon_photo)
+        self.win = _make_dialog(parent, f"{APP_NAME} Options", 700, 660, icon_photo)
         self.win.resizable(True, True)
         self._vars: dict[str, tk.Variable] = {}
         self._color_buttons: dict[str, tk.Button] = {}
         self._build()
+        self.win.update_idletasks()
+        req_w = max(700, self.win.winfo_reqwidth() + 16)
+        req_h = max(660, self.win.winfo_reqheight() + 16)
+        sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
+        final_w = min(req_w, sw - 40)
+        final_h = min(req_h, sh - 60)
+        x = max(20, (sw - final_w) // 2)
+        y = max(20, (sh - final_h) // 2)
+        self.win.geometry(f"{final_w}x{final_h}+{x}+{y}")
+        self.win.minsize(min(680, final_w), min(620, final_h))
 
     def show(self) -> None:
         self.win.deiconify()
@@ -167,9 +182,11 @@ class OptionsDialog:
         footer = tk.Frame(self.win, bg="#F5F7FB", padx=14, pady=10)
         footer.pack(fill="x")
         ttk.Button(footer, text="Reset Defaults", command=self._reset_defaults).pack(side="left")
+        self._save_status = tk.Label(footer, text="", bg="#F5F7FB", fg="#087F5B", font=("Segoe UI", 9, "bold"))
+        self._save_status.pack(side="left", padx=(12, 0))
         ttk.Button(footer, text="Cancel", command=self.win.destroy).pack(side="right", padx=(6, 0))
-        ttk.Button(footer, text="Apply", command=self._apply_only).pack(side="right", padx=(6, 0))
-        ttk.Button(footer, text="OK", style="Accent.TButton", command=self._ok).pack(side="right")
+        ttk.Button(footer, text="Save Changes", command=self._apply_only).pack(side="right", padx=(6, 0))
+        ttk.Button(footer, text="Save & Close", style="Accent.TButton", command=self._ok).pack(side="right")
 
     def _build_general_tab(self, tab: ttk.Frame) -> None:
         c1 = self._card(tab, "Network Monitoring")
@@ -236,6 +253,11 @@ class OptionsDialog:
             c3,
             text="Record daily historical traffic usage",
             variable=self._vars["track_history"],
+        ).pack(anchor="w", pady=2)
+        ttk.Checkbutton(
+            c3,
+            text="Show real-time laptop power consumption (Watts only, W)",
+            variable=self._vars["show_power_watts"],
         ).pack(anchor="w", pady=2)
 
     def _build_main_tab(self, tab: ttk.Frame) -> None:
@@ -443,6 +465,11 @@ class OptionsDialog:
         ).pack(anchor="w", pady=(0, 8))
         btns = tk.Frame(c2, bg="#FFFFFF")
         btns.pack(fill="x")
+        ttk.Button(btns, text="Save Settings Now", style="Accent.TButton", command=self._apply_only).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(btns, text="Export Settings…", command=self._export_settings).pack(side="left", padx=(0, 8))
+        ttk.Button(btns, text="Import Settings…", command=self._import_settings).pack(side="left", padx=(0, 8))
         ttk.Button(btns, text="Open Config Folder", command=WindowsPlatformService.open_config_folder).pack(
             side="left", padx=(0, 8)
         )
@@ -534,11 +561,42 @@ class OptionsDialog:
         except ValueError:
             messagebox.showerror(APP_NAME, "Please check that all numeric values are valid.", parent=self.win)
             return False
-        if not updated.show_main_window and not updated.show_taskbar_window:
-            # Keep user informed: tray icon remains active
-            pass
         self.on_apply(updated)
+        self._working = Settings(**asdict(updated))
+        if hasattr(self, "_save_status"):
+            self._save_status.configure(text="All changes saved")
         return True
+
+    def _export_settings(self) -> None:
+        try:
+            current = self._collect_settings()
+        except ValueError:
+            messagebox.showerror(APP_NAME, "Please check that all numeric values are valid.", parent=self.win)
+            return
+        path_str = filedialog.asksaveasfilename(
+            parent=self.win,
+            title="Export Speedometer Settings",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="speedometer-settings.json",
+        )
+        if not path_str:
+            return
+        SettingsRepository(Path(path_str)).save(current)
+        if hasattr(self, "_save_status"):
+            self._save_status.configure(text="Settings exported")
+
+    def _import_settings(self) -> None:
+        path_str = filedialog.askopenfilename(
+            parent=self.win,
+            title="Import Speedometer Settings",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path_str:
+            return
+        imported = SettingsRepository(Path(path_str)).load()
+        self.on_apply(imported)
+        self.win.destroy()
 
     def _ok(self) -> None:
         if self._apply_only():
