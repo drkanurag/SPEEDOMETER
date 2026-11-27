@@ -21,6 +21,22 @@ Download and run directly on Windows 11 (no Python or extra dependencies require
 > any time for **Window Skin**, **Align to Taskbar**, **Connection Details**,
 > **Historical Traffic Statistics**, and **Options**.
 
+## Direct Download
+
+Download and run directly on Windows 11 (no Python or extra dependencies required):
+
+| Package | Description | Download |
+| --- | --- | --- |
+| **Portable App** | Single standalone executable (`Speedometer.exe`) — run directly from any folder | [Download Speedometer.exe](https://github.com/drkanurag/SPEEDOMETER/releases/latest/download/Speedometer.exe) |
+| **Windows Installer** | Installs to `%LOCALAPPDATA%\Speedometer` with Start Menu & Desktop shortcuts | [Download Speedometer-Setup.exe](https://github.com/drkanurag/SPEEDOMETER/releases/latest/download/Speedometer-Setup.exe) |
+
+> **All Releases:** Browse release notes and downloads on the [GitHub Releases page](https://github.com/drkanurag/SPEEDOMETER/releases).
+>
+> **Quick Start:** Double-click `Speedometer.exe` to launch the taskbar-sized
+> live monitor (`Taskbar Strip`). Right-click the monitor or system tray icon at
+> any time for **Window Skin**, **Align to Taskbar**, **Connection Details**,
+> **Historical Traffic Statistics**, and **Options**.
+
 ## Key Features
 
 - **Main Floating Window (4 Skins):** Switch between **Taskbar Strip**
