@@ -9,8 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from speedometer_app.models import Settings, format_rate, format_total
-from speedometer_app.services import NetworkSampler, SettingsRepository, SystemMetricsService, TrafficHistoryRepository
+from speedometer_app.models import Settings, format_rate, format_total, format_watts
+from speedometer_app.services import (
+    NetworkSampler,
+    PowerMetricsService,
+    SettingsRepository,
+    SystemMetricsService,
+    TrafficHistoryRepository,
+)
 
 
 class FormattingTests(unittest.TestCase):
@@ -25,6 +31,12 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(format_total(512), "512 B")
         self.assertEqual(format_total(2048), "2.0 KB")
         self.assertEqual(format_total(5 * 1024 ** 3), "5.00 GB")
+
+    def test_format_watts_strictly_wattage(self) -> None:
+        self.assertEqual(format_watts(None), "-- W")
+        self.assertEqual(format_watts(-5.0), "-- W")
+        self.assertEqual(format_watts(14.37), "14.4 W")
+        self.assertEqual(format_watts(105.6), "106 W")
 
 
 class PersistenceTests(unittest.TestCase):
@@ -101,6 +113,17 @@ class SamplerTests(unittest.TestCase):
         s.apply_theme("Windows 11 Light")
         self.assertEqual(s.background, "#F7F9FC")
         self.assertEqual(s.download, "#087F5B")
+        self.assertEqual(s.power, "#B45309")
+
+    def test_power_metrics_service_battery_and_pdh(self) -> None:
+        svc = PowerMetricsService()
+        try:
+            with patch.object(PowerMetricsService, "_battery_discharge_watts", return_value=18.5), \
+                 patch.object(svc, "_ensure_pdh"), \
+                 patch.object(svc, "_sum_handles_mw", return_value=0.0):
+                self.assertAlmostEqual(svc.sample_watts() or 0.0, 18.5)
+        finally:
+            svc.close()
 
 
 if __name__ == "__main__":

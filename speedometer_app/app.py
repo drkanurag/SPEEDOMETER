@@ -17,10 +17,12 @@ from speedometer_app.models import (
     Settings,
     SystemSnapshot,
     format_rate,
+    format_watts,
 )
 from speedometer_app.overlays import MainOverlayWindow, TaskbarOverlayWindow
 from speedometer_app.services import (
     NetworkSampler,
+    PowerMetricsService,
     SettingsRepository,
     SystemMetricsService,
     TrafficHistoryRepository,
@@ -42,6 +44,7 @@ class SpeedometerApp:
         self.settings = self.settings_repository.load()
         self.sampler = NetworkSampler(self.settings.adapter, self.settings.show_virtual_adapters)
         self.system_metrics = SystemMetricsService()
+        self.power_metrics = PowerMetricsService()
 
         self._ticks_since_history_save = 0
         self._options_dialog: OptionsDialog | None = None
@@ -162,6 +165,8 @@ class SpeedometerApp:
         disp_menu = tk.Menu(menu, tearoff=0, font=("Segoe UI", 9))
         self._add_bool_menu_item(disp_menu, "Show Live Sparkline", "show_sparkline")
         self._add_bool_menu_item(disp_menu, "Show CPU & RAM", "show_system_stats")
+        self._add_bool_menu_item(disp_menu, "Show Power Usage (W)", "show_power_watts")
+        self._add_bool_menu_item(disp_menu, "Show Taskbar Power (W)", "taskbar_show_power_watts")
         self._add_bool_menu_item(disp_menu, "Show Session Totals", "show_totals")
         self._add_bool_menu_item(disp_menu, "Show Adapter Header", "show_adapter_name")
         menu.add_cascade(label="Display Settings", menu=disp_menu)
@@ -243,7 +248,12 @@ class SpeedometerApp:
         delay_ms = max(250, int(self.settings.interval * 1000))
         try:
             network, delta_down, delta_up = self.sampler.sample()
-            system = self.system_metrics.sample()
+            power_w = (
+                self.power_metrics.sample_watts()
+                if (self.settings.show_power_watts or self.settings.taskbar_show_power_watts)
+                else None
+            )
+            system = self.system_metrics.sample(power_watts=power_w)
 
             if self.settings.track_history:
                 self.history_repository.add_bytes(delta_down, delta_up)
@@ -281,7 +291,10 @@ class SpeedometerApp:
     def _update_tray_tooltip(self, network: NetworkSnapshot, system: SystemSnapshot) -> None:
         down = format_rate(network.download_bytes_per_second, self.settings.unit_mode, self.settings.precision)
         up = format_rate(network.upload_bytes_per_second, self.settings.unit_mode, self.settings.precision)
-        tip = f"{APP_NAME}\n↓ {down} | ↑ {up}\nCPU {system.cpu_percent:.0f}% | RAM {system.memory_percent:.0f}%"
+        sys_line = f"CPU {system.cpu_percent:.0f}% | RAM {system.memory_percent:.0f}%"
+        if self.settings.show_power_watts or self.settings.taskbar_show_power_watts:
+            sys_line += f" | {format_watts(system.power_watts)}"
+        tip = f"{APP_NAME}\n↓ {down} | ↑ {up}\n{sys_line}"
         try:
             self.tray.title = tip[:120]
         except Exception:
@@ -354,6 +367,7 @@ class SpeedometerApp:
         if self.settings.track_history:
             self.history_repository.save()
         self.settings_repository.save(self.settings)
+        self.power_metrics.close()
         try:
             self.tray.stop()
         except Exception:

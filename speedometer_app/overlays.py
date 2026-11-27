@@ -11,6 +11,7 @@ from speedometer_app.models import (
     SystemSnapshot,
     format_rate,
     format_total,
+    format_watts,
 )
 from speedometer_app.services import WindowsPlatformService
 from speedometer_app.ui_widgets import SparklineCanvas, UsageBar
@@ -154,6 +155,21 @@ class MainOverlayWindow:
                 ram_lbl.grid(row=1, column=1, sticky="w", padx=(6, 0))
                 self._bind_interactive(ram_lbl)
                 self._labels["ram"] = ram_lbl
+
+            if s.show_power_watts:
+                pwr_col = 2 if s.show_system_stats else 1
+                pwr_lbl = tk.Label(
+                    card,
+                    text=f"{s.label_power} -- W",
+                    font=font_bold,
+                    bg=s.background,
+                    fg=s.power,
+                    anchor="w",
+                    width=9,
+                )
+                pwr_lbl.grid(row=0, column=pwr_col, rowspan=2, sticky="w", padx=(6, 0))
+                self._bind_interactive(pwr_lbl)
+                self._labels["power"] = pwr_lbl
         elif skin == "Compact Pill":
             pad_x, pad_y = 10, 5
             card = tk.Frame(outer, bg=s.background, padx=pad_x, pady=pad_y)
@@ -173,7 +189,7 @@ class MainOverlayWindow:
                     fg=s.download,
                     anchor="w",
                 )
-                dl.pack(side="left", padx=(0, 10 if s.show_upload else 0))
+                dl.pack(side="left", padx=(0, 10 if (s.show_upload or s.show_power_watts) else 0))
                 self._bind_interactive(dl)
                 self._labels["down"] = dl
             if s.show_upload:
@@ -185,9 +201,21 @@ class MainOverlayWindow:
                     fg=s.upload,
                     anchor="w",
                 )
-                ul.pack(side="left")
+                ul.pack(side="left", padx=(0, 10 if s.show_power_watts else 0))
                 self._bind_interactive(ul)
                 self._labels["up"] = ul
+            if s.show_power_watts:
+                pwr = tk.Label(
+                    speed_row,
+                    text=f"{s.label_power} -- W",
+                    font=font_main,
+                    bg=s.background,
+                    fg=s.power,
+                    anchor="w",
+                )
+                pwr.pack(side="left")
+                self._bind_interactive(pwr)
+                self._labels["power"] = pwr
         else:
             card = tk.Frame(outer, bg=s.background, padx=13, pady=9)
             card.pack(fill="both", expand=True)
@@ -346,6 +374,31 @@ class MainOverlayWindow:
                     self._labels["sys"] = sys_lbl
                 row_idx += 1
 
+            if s.show_power_watts:
+                pwr_tag = tk.Label(
+                    card,
+                    text=f"{s.label_power}  Power",
+                    font=font_micro,
+                    bg=s.background,
+                    fg=s.muted,
+                    anchor="w",
+                )
+                pwr_tag.grid(row=row_idx, column=0, sticky="w", pady=(4, 0))
+                self._bind_interactive(pwr_tag)
+
+                pwr_val = tk.Label(
+                    card,
+                    text="-- W",
+                    font=(s.font, max(8, s.font_size - 1), "bold"),
+                    bg=s.background,
+                    fg=s.power,
+                    anchor="e",
+                )
+                pwr_val.grid(row=row_idx, column=1, sticky="e", pady=(4, 0))
+                self._bind_interactive(pwr_val)
+                self._labels["power"] = pwr_val
+                row_idx += 1
+
             if s.show_totals:
                 totals_lbl = tk.Label(
                     card,
@@ -404,6 +457,11 @@ class MainOverlayWindow:
             self._labels["ram"].configure(text=f"{s.label_ram} {system.memory_percent:.0f}%")
         if self.ram_bar is not None:
             self.ram_bar.set_percent(system.memory_percent)
+
+        if "power" in self._labels:
+            w_str = format_watts(system.power_watts)
+            text = f"{s.label_power} {w_str}" if (inline_prefix or s.skin in ("Taskbar Strip", "Compact Pill")) else w_str
+            self._labels["power"].configure(text=text)
 
         if "totals" in self._labels:
             self._labels["totals"].configure(
@@ -529,18 +587,19 @@ class TaskbarOverlayWindow:
         self._labels: dict[str, tk.Label] = {}
         self.rebuild()
 
-    def _resolved_colors(self) -> tuple[str, str, str, str, str]:
+    def _resolved_colors(self) -> tuple[str, str, str, str, str, str]:
         s = self.settings
         if s.taskbar_auto_theme:
             if WindowsPlatformService.is_system_light_theme():
-                return ("#EFF3F8", "#D4DCE8", "#182233", "#087F5B", "#1D63DC")
-            return ("#1F1F1F", "#343434", "#F4F6FA", "#6CCB5F", "#60CDFF")
+                return ("#EFF3F8", "#D4DCE8", "#182233", "#087F5B", "#1D63DC", "#B45309")
+            return ("#1F1F1F", "#343434", "#F4F6FA", "#6CCB5F", "#60CDFF", "#FBBF24")
         return (
             s.taskbar_background,
             s.border,
             s.taskbar_foreground,
             s.taskbar_download,
             s.taskbar_upload,
+            s.power,
         )
 
     def _bind_events(self, widget: tk.Widget) -> None:
@@ -571,7 +630,7 @@ class TaskbarOverlayWindow:
         self._labels.clear()
 
         s = self.settings
-        bg, border, fg, dl_col, ul_col = self._resolved_colors()
+        bg, border, fg, dl_col, ul_col, pwr_col = self._resolved_colors()
         self.win.configure(bg=bg)
 
         frame = tk.Frame(self.win, bg=bg, highlightbackground=border, highlightthickness=1, padx=8, pady=2)
@@ -589,6 +648,7 @@ class TaskbarOverlayWindow:
                 ("up", s.taskbar_show_upload, f"{s.label_upload} {zero_rate}", ul_col, font_bold, 10),
                 ("cpu", s.taskbar_show_cpu, f"{s.label_cpu} 0%", fg, font_reg, 7),
                 ("ram", s.taskbar_show_ram, f"{s.label_ram} 0%", fg, font_reg, 7),
+                ("power", s.taskbar_show_power_watts, f"{s.label_power} -- W", pwr_col, font_bold, 9),
             ]
             for key, visible, init_text, color, font, min_w in specs:
                 if not visible:
@@ -623,6 +683,14 @@ class TaskbarOverlayWindow:
                 ram.grid(row=1, column=1, sticky="w", padx=(8, 0))
                 self._bind_events(ram)
                 self._labels["ram"] = ram
+            if s.taskbar_show_power_watts:
+                pwr_col_idx = 2 if (s.taskbar_show_cpu or s.taskbar_show_ram) else 1
+                pwr = tk.Label(
+                    frame, text=f"{s.label_power} -- W", font=font_bold, bg=bg, fg=pwr_col, anchor="w", width=9
+                )
+                pwr.grid(row=0, column=pwr_col_idx, rowspan=2, sticky="w", padx=(8, 0))
+                self._bind_events(pwr)
+                self._labels["power"] = pwr
 
         self.apply_position()
         WindowsPlatformService.apply_rounded_corners(self.win, small=True, border_hex=border)
@@ -673,6 +741,8 @@ class TaskbarOverlayWindow:
             self._labels["cpu"].configure(text=f"{s.label_cpu} {system.cpu_percent:.0f}%")
         if "ram" in self._labels:
             self._labels["ram"].configure(text=f"{s.label_ram} {system.memory_percent:.0f}%")
+        if "power" in self._labels:
+            self._labels["power"].configure(text=f"{s.label_power} {format_watts(system.power_watts)}")
 
     def apply_visibility(self) -> None:
         if self.settings.show_taskbar_window and not self._fullscreen_hidden:

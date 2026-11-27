@@ -370,7 +370,7 @@ class SystemMetricsService:
             pass
 
     @staticmethod
-    def sample() -> SystemSnapshot:
+    def sample(power_watts: float | None = None) -> SystemSnapshot:
         mem = psutil.virtual_memory()
         gib = 1024 ** 3
         return SystemSnapshot(
@@ -378,7 +378,199 @@ class SystemMetricsService:
             memory_percent=mem.percent,
             memory_used_gb=mem.used / gib,
             memory_total_gb=mem.total / gib,
+            power_watts=power_watts,
         )
+
+
+class PowerMetricsService:
+    """Reads real-time laptop power consumption strictly in Watts (W).
+
+    Uses Windows PDH Power Meter / Energy Meter (RAPL) counters via ctypes and
+    Win32 CallNtPowerInformation(SystemBatteryState) when discharging on battery.
+    """
+
+    _PDH_FMT_DOUBLE = 0x00000200
+    _BATTERY_UNKNOWN_RATE = -2147483648  # 0x80000000
+
+    class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+        _fields_ = [
+            ("CStatus", ctypes.wintypes.DWORD),
+            ("doubleValue", ctypes.c_double),
+        ]
+
+    class _SYSTEM_BATTERY_STATE(ctypes.Structure):
+        _fields_ = [
+            ("AcOnLine", ctypes.c_ubyte),
+            ("BatteryPresent", ctypes.c_ubyte),
+            ("Charging", ctypes.c_ubyte),
+            ("Discharging", ctypes.c_ubyte),
+            ("Spare1", ctypes.c_ubyte * 3),
+            ("Tag", ctypes.c_ubyte),
+            ("MaxCapacity", ctypes.wintypes.DWORD),
+            ("RemainingCapacity", ctypes.wintypes.DWORD),
+            ("Rate", ctypes.c_long),
+            ("EstimatedTime", ctypes.wintypes.DWORD),
+            ("DefaultAlert1", ctypes.wintypes.DWORD),
+            ("DefaultAlert2", ctypes.wintypes.DWORD),
+        ]
+
+    def __init__(self) -> None:
+        self._pdh = None
+        self._query: ctypes.c_void_p | None = None
+        self._power_meter_handles: list[ctypes.c_void_p] = []
+        self._energy_meter_handles: list[ctypes.c_void_p] = []
+        self._initialized = False
+
+    def _ensure_pdh(self) -> None:
+        if self._initialized:
+            return
+        self._initialized = True
+        try:
+            pdh = ctypes.windll.pdh
+            wt = ctypes.wintypes
+            pdh.PdhOpenQueryW.argtypes = [wt.LPCWSTR, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+            pdh.PdhOpenQueryW.restype = wt.LONG
+            pdh.PdhAddEnglishCounterW.argtypes = [
+                ctypes.c_void_p,
+                wt.LPCWSTR,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_void_p),
+            ]
+            pdh.PdhAddEnglishCounterW.restype = wt.LONG
+            pdh.PdhCollectQueryData.argtypes = [ctypes.c_void_p]
+            pdh.PdhCollectQueryData.restype = wt.LONG
+            pdh.PdhGetFormattedCounterValue.argtypes = [
+                ctypes.c_void_p,
+                wt.DWORD,
+                ctypes.POINTER(wt.DWORD),
+                ctypes.POINTER(self._PDH_FMT_COUNTERVALUE),
+            ]
+            pdh.PdhGetFormattedCounterValue.restype = wt.LONG
+            pdh.PdhExpandWildCardPathW.argtypes = [
+                wt.LPCWSTR,
+                wt.LPCWSTR,
+                wt.LPWSTR,
+                ctypes.POINTER(wt.DWORD),
+                wt.DWORD,
+            ]
+            pdh.PdhExpandWildCardPathW.restype = wt.LONG
+            pdh.PdhCloseQuery.argtypes = [ctypes.c_void_p]
+            pdh.PdhCloseQuery.restype = wt.LONG
+
+            query = ctypes.c_void_p()
+            if pdh.PdhOpenQueryW(None, None, ctypes.byref(query)) != 0:
+                return
+            self._pdh = pdh
+            self._query = query
+
+            for path in self._select_power_meter_paths():
+                h = ctypes.c_void_p()
+                if pdh.PdhAddEnglishCounterW(query, path, None, ctypes.byref(h)) == 0:
+                    self._power_meter_handles.append(h)
+
+            for path in self._select_energy_meter_paths():
+                h = ctypes.c_void_p()
+                if pdh.PdhAddEnglishCounterW(query, path, None, ctypes.byref(h)) == 0:
+                    self._energy_meter_handles.append(h)
+
+            if self._power_meter_handles or self._energy_meter_handles:
+                pdh.PdhCollectQueryData(query)
+        except Exception:
+            self.close()
+
+    def _expand(self, pattern: str) -> list[str]:
+        if not self._pdh:
+            return []
+        try:
+            buf_len = ctypes.wintypes.DWORD(0)
+            self._pdh.PdhExpandWildCardPathW(None, pattern, None, ctypes.byref(buf_len), 0)
+            if buf_len.value == 0:
+                return []
+            buf = ctypes.create_unicode_buffer(buf_len.value)
+            res = self._pdh.PdhExpandWildCardPathW(None, pattern, buf, ctypes.byref(buf_len), 0)
+            if res != 0:
+                return []
+            raw = ctypes.wstring_at(buf, buf_len.value)
+            return [p for p in raw.split("\x00") if p]
+        except Exception:
+            return []
+
+    def _select_power_meter_paths(self) -> list[str]:
+        paths = self._expand(r"\Power Meter(*)\Power")
+        totals = [p for p in paths if "(_Total)" in p]
+        return totals or [p for p in paths if "(_Total)" not in p]
+
+    def _select_energy_meter_paths(self) -> list[str]:
+        paths = self._expand(r"\Energy Meter(*)\Power")
+        pkg = [p for p in paths if "_PKG)" in p.upper()]
+        if pkg:
+            return pkg
+        return [p for p in paths if "(_Total)" not in p]
+
+    def _sum_handles_mw(self, handles: list[ctypes.c_void_p]) -> float:
+        if not self._pdh or not handles:
+            return 0.0
+        total_mw = 0.0
+        val = self._PDH_FMT_COUNTERVALUE()
+        ctype = ctypes.wintypes.DWORD()
+        for h in handles:
+            if (
+                self._pdh.PdhGetFormattedCounterValue(
+                    h, self._PDH_FMT_DOUBLE, ctypes.byref(ctype), ctypes.byref(val)
+                )
+                == 0
+            ):
+                if val.CStatus == 0 and val.doubleValue > 0:
+                    total_mw += val.doubleValue
+        return total_mw
+
+    @classmethod
+    def _battery_discharge_watts(cls) -> float | None:
+        try:
+            sbs = cls._SYSTEM_BATTERY_STATE()
+            status = ctypes.windll.powrprof.CallNtPowerInformation(
+                5, None, 0, ctypes.byref(sbs), ctypes.sizeof(sbs)
+            )
+            if status == 0 and sbs.BatteryPresent and not sbs.AcOnLine and sbs.Discharging:
+                if sbs.Rate != 0 and sbs.Rate != cls._BATTERY_UNKNOWN_RATE:
+                    return abs(sbs.Rate) / 1000.0
+        except Exception:
+            pass
+        return None
+
+    def sample_watts(self) -> float | None:
+        """Return real-time power draw in Watts, or None if no sensor is available."""
+        self._ensure_pdh()
+        pm_mw = 0.0
+        em_mw = 0.0
+        if self._pdh and self._query and (self._power_meter_handles or self._energy_meter_handles):
+            try:
+                if self._pdh.PdhCollectQueryData(self._query) == 0:
+                    pm_mw = self._sum_handles_mw(self._power_meter_handles)
+                    em_mw = self._sum_handles_mw(self._energy_meter_handles)
+            except Exception:
+                pass
+
+        if pm_mw > 0:
+            return pm_mw / 1000.0
+
+        battery_w = self._battery_discharge_watts()
+        if battery_w is not None and battery_w > 0:
+            return battery_w
+
+        if em_mw > 0:
+            return em_mw / 1000.0
+        return None
+
+    def close(self) -> None:
+        if self._pdh and self._query:
+            try:
+                self._pdh.PdhCloseQuery(self._query)
+            except Exception:
+                pass
+        self._query = None
+        self._power_meter_handles.clear()
+        self._energy_meter_handles.clear()
 
 
 class WindowsPlatformService:

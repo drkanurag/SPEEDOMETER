@@ -130,6 +130,7 @@ class OptionsDialog:
             "show_upload": tk.BooleanVar(value=s.show_upload),
             "show_totals": tk.BooleanVar(value=s.show_totals),
             "show_system_stats": tk.BooleanVar(value=s.show_system_stats),
+            "show_power_watts": tk.BooleanVar(value=s.show_power_watts),
             "show_sparkline": tk.BooleanVar(value=s.show_sparkline),
             "show_adapter_name": tk.BooleanVar(value=s.show_adapter_name),
             "always_on_top": tk.BooleanVar(value=s.always_on_top),
@@ -148,11 +149,13 @@ class OptionsDialog:
             "taskbar_show_upload": tk.BooleanVar(value=s.taskbar_show_upload),
             "taskbar_show_cpu": tk.BooleanVar(value=s.taskbar_show_cpu),
             "taskbar_show_ram": tk.BooleanVar(value=s.taskbar_show_ram),
+            "taskbar_show_power_watts": tk.BooleanVar(value=s.taskbar_show_power_watts),
             # Labels
             "label_download": tk.StringVar(value=s.label_download),
             "label_upload": tk.StringVar(value=s.label_upload),
             "label_cpu": tk.StringVar(value=s.label_cpu),
             "label_ram": tk.StringVar(value=s.label_ram),
+            "label_power": tk.StringVar(value=s.label_power),
         }
 
         self._build_general_tab(tab_general)
@@ -277,6 +280,7 @@ class OptionsDialog:
             ("Show Upload speed", "show_upload"),
             ("Show Live Sparkline graph", "show_sparkline"),
             ("Show CPU & RAM usage", "show_system_stats"),
+            ("Show Power consumption (W)", "show_power_watts"),
             ("Show Session totals", "show_totals"),
             ("Show Active adapter header", "show_adapter_name"),
         ):
@@ -318,6 +322,7 @@ class OptionsDialog:
             ("Upload", "upload"),
             ("CPU", "cpu"),
             ("RAM", "ram"),
+            ("Power", "power"),
         ):
             btn = tk.Button(
                 colors_row,
@@ -378,6 +383,7 @@ class OptionsDialog:
             ("Upload", "taskbar_show_upload"),
             ("CPU %", "taskbar_show_cpu"),
             ("RAM %", "taskbar_show_ram"),
+            ("Power (W)", "taskbar_show_power_watts"),
         ):
             ttk.Checkbutton(row, text=label, variable=self._vars[key]).pack(side="left", padx=(0, 14))
 
@@ -419,6 +425,7 @@ class OptionsDialog:
                 ("Upload prefix", "label_upload"),
                 ("CPU prefix", "label_cpu"),
                 ("RAM prefix", "label_ram"),
+                ("Power prefix", "label_power"),
             )
         ):
             tk.Label(g, text=label, bg="#FFFFFF", fg="#162032").grid(row=idx // 2, column=(idx % 2) * 2, sticky="w", pady=4)
@@ -493,6 +500,7 @@ class OptionsDialog:
         s.show_upload = bool(self._vars["show_upload"].get())
         s.show_totals = bool(self._vars["show_totals"].get())
         s.show_system_stats = bool(self._vars["show_system_stats"].get())
+        s.show_power_watts = bool(self._vars["show_power_watts"].get())
         s.show_sparkline = bool(self._vars["show_sparkline"].get())
         s.show_adapter_name = bool(self._vars["show_adapter_name"].get())
         s.always_on_top = bool(self._vars["always_on_top"].get())
@@ -511,11 +519,13 @@ class OptionsDialog:
         s.taskbar_show_upload = bool(self._vars["taskbar_show_upload"].get())
         s.taskbar_show_cpu = bool(self._vars["taskbar_show_cpu"].get())
         s.taskbar_show_ram = bool(self._vars["taskbar_show_ram"].get())
+        s.taskbar_show_power_watts = bool(self._vars["taskbar_show_power_watts"].get())
 
         s.label_download = str(self._vars["label_download"].get()) or "↓"
         s.label_upload = str(self._vars["label_upload"].get()) or "↑"
         s.label_cpu = str(self._vars["label_cpu"].get()) or "CPU"
         s.label_ram = str(self._vars["label_ram"].get()) or "RAM"
+        s.label_power = str(self._vars["label_power"].get()) or "PWR"
         return s
 
     def _apply_only(self) -> bool:

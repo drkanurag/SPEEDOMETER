@@ -36,6 +36,7 @@ THEMES: dict[str, dict[str, str]] = {
         "upload": "#69B1FF",
         "cpu": "#F5B971",
         "ram": "#C084FC",
+        "power": "#FBBF24",
     },
     "Windows 11 Dark": {
         "background": "#1E1E1E",
@@ -47,6 +48,7 @@ THEMES: dict[str, dict[str, str]] = {
         "upload": "#60CDFF",
         "cpu": "#FCE100",
         "ram": "#C58AF9",
+        "power": "#FFB900",
     },
     "Windows 11 Light": {
         "background": "#F7F9FC",
@@ -58,6 +60,7 @@ THEMES: dict[str, dict[str, str]] = {
         "upload": "#1D63DC",
         "cpu": "#C76B00",
         "ram": "#7E3AF2",
+        "power": "#B45309",
     },
     "Graphite": {
         "background": "#23252A",
@@ -69,6 +72,7 @@ THEMES: dict[str, dict[str, str]] = {
         "upload": "#93C5FD",
         "cpu": "#FBBF24",
         "ram": "#F472B6",
+        "power": "#FCD34D",
     },
     "Nord": {
         "background": "#2E3440",
@@ -80,6 +84,7 @@ THEMES: dict[str, dict[str, str]] = {
         "upload": "#A3BE8C",
         "cpu": "#EBCB8B",
         "ram": "#B48EAD",
+        "power": "#EBCB8B",
     },
 }
 
@@ -112,6 +117,7 @@ class Settings:
     upload: str = "#69B1FF"
     cpu: str = "#F5B971"
     ram: str = "#C084FC"
+    power: str = "#FBBF24"
     opacity: float = 0.96
 
     # Main window items
@@ -119,6 +125,7 @@ class Settings:
     show_upload: bool = True
     show_totals: bool = True
     show_system_stats: bool = True
+    show_power_watts: bool = False
     show_sparkline: bool = True
     show_adapter_name: bool = True
 
@@ -142,6 +149,7 @@ class Settings:
     taskbar_show_upload: bool = True
     taskbar_show_cpu: bool = True
     taskbar_show_ram: bool = True
+    taskbar_show_power_watts: bool = False
     taskbar_background: str = "#1E1E1E"
     taskbar_foreground: str = "#FFFFFF"
     taskbar_download: str = "#6CCB5F"
@@ -152,6 +160,7 @@ class Settings:
     label_upload: str = "↑"
     label_cpu: str = "CPU"
     label_ram: str = "RAM"
+    label_power: str = "PWR"
 
     # Startup & persistence
     start_with_windows: bool = True
@@ -179,12 +188,13 @@ class NetworkSnapshot:
 
 @dataclass(frozen=True)
 class SystemSnapshot:
-    """Immutable reading of host CPU and RAM utilization."""
+    """Immutable reading of host CPU, RAM, and optional power wattage."""
 
     cpu_percent: float
     memory_percent: float
     memory_used_gb: float = 0.0
     memory_total_gb: float = 0.0
+    power_watts: float | None = None
 
 
 @dataclass(frozen=True)
@@ -267,3 +277,12 @@ def format_total(byte_count: int) -> str:
     if index >= 3:
         return f"{value:.2f} {units[index]}"
     return f"{value:.1f} {units[index]}"
+
+
+def format_watts(watts: float | None) -> str:
+    """Format real-time power draw strictly in Watts (W)."""
+    if watts is None or watts < 0:
+        return "-- W"
+    if watts >= 100:
+        return f"{watts:.0f} W"
+    return f"{watts:.1f} W"

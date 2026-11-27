@@ -63,6 +63,9 @@ Download and run directly on Windows 11 (no Python or extra dependencies require
   fonts, opacity, and custom metric prefixes.
 - **Live System Tray Tooltip:** Hover over the tray icon at any time to see
   live download/upload speeds and CPU/RAM usage.
+- **Optional Real-Time Power Consumption (Watts):** Enable **Show Power
+  Usage (W)** from Display Settings or Options to monitor live laptop energy
+  draw strictly in Watts (`W`).
 
 ## Use the Portable EXE
 
