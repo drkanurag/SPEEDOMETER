@@ -1,0 +1,54 @@
+name: Build and Release Speedometer
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pywin32
+
+      - name: Run unit tests
+        shell: pwsh
+        run: python -m unittest discover -s tests -v
+
+      - name: Build portable and installer EXEs
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean Speedometer.spec
+          python -m PyInstaller --noconfirm --clean Speedometer-Setup.spec
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "v2.0.0"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag dist/Speedometer.exe dist/Speedometer-Setup.exe --clobber
+          } else {
+            gh release create $tag dist/Speedometer.exe dist/Speedometer-Setup.exe `
+              --title "Speedometer $tag" `
+              --notes "Windows 11 network & system monitor (portable EXE and per-user installer)." `
+              --latest
+          }
